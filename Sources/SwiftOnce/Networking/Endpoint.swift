@@ -7,6 +7,8 @@ enum Endpoint {
     case textToSpeechStreamWithTimestamps(voiceId: String)
     case voices
     case voice(voiceId: String)
+    case voiceDesign
+    case createVoice
 
     var path: String {
         switch self {
@@ -22,6 +24,10 @@ enum Endpoint {
             "/v2/voices"
         case .voice(let voiceId):
             "/v1/voices/\(voiceId)"
+        case .voiceDesign:
+            "/v1/text-to-voice/design"
+        case .createVoice:
+            "/v1/text-to-voice"
         }
     }
 
@@ -29,6 +35,8 @@ enum Endpoint {
         switch self {
         case .textToSpeech, .textToSpeechStream,
              .textToSpeechWithTimestamps, .textToSpeechStreamWithTimestamps:
+            "POST"
+        case .voiceDesign, .createVoice:
             "POST"
         case .voices, .voice:
             "GET"

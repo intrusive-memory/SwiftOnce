@@ -241,6 +241,107 @@ private func testConfiguration() -> SwiftOnceConfiguration {
     #expect(url.contains("page_size=10"))
 }
 
+// MARK: - Voice Design Tests
+
+@Test func testVoiceDesignModelRawValues() {
+    #expect(VoiceDesignModel.v2.rawValue == "eleven_multilingual_ttv_v2")
+    #expect(VoiceDesignModel.v3.rawValue == "eleven_ttv_v3")
+}
+
+@Test func testDesignVoiceEndpoints() {
+    #expect(Endpoint.voiceDesign.path == "/v1/text-to-voice/design")
+    #expect(Endpoint.voiceDesign.method == "POST")
+    #expect(Endpoint.createVoice.path == "/v1/text-to-voice")
+    #expect(Endpoint.createVoice.method == "POST")
+}
+
+@Test func testDesignVoiceRequestConstruction() async throws {
+    let responseJSON = """
+    {"previews": [], "text": "Hello world"}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(responseJSON.utf8), statusCode: 200)
+
+    let client = SwiftOnce(apiKey: "test-key", configuration: testConfiguration(), httpClient: mock)
+    let _ = try await client.designVoice(description: "Deep warm baritone", previewText: "Hello world")
+
+    let requests = await mock.capturedRequests
+    #expect(requests.count == 1)
+    let request = requests[0]
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.path == "/v1/text-to-voice/design")
+    #expect(request.value(forHTTPHeaderField: "xi-api-key") == "test-key")
+
+    let bodyDict = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+    #expect(bodyDict["voice_description"] as? String == "Deep warm baritone")
+    #expect(bodyDict["text"] as? String == "Hello world")
+}
+
+@Test func testDesignVoiceResponseDecoding() async throws {
+    let base64Audio = Data("fake-audio".utf8).base64EncodedString()
+    let responseJSON = """
+    {
+        "previews": [
+            {
+                "audio_base_64": "\(base64Audio)",
+                "generated_voice_id": "gen_abc123",
+                "media_type": "audio/mpeg",
+                "duration_secs": 3.5,
+                "language": "en"
+            }
+        ],
+        "text": "Hello world"
+    }
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(responseJSON.utf8), statusCode: 200)
+
+    let client = SwiftOnce(apiKey: "key", configuration: testConfiguration(), httpClient: mock)
+    let result = try await client.designVoice(description: "Test voice")
+
+    #expect(result.text == "Hello world")
+    #expect(result.previews.count == 1)
+    #expect(result.previews[0].id == "gen_abc123")
+    #expect(result.previews[0].audioData == Data("fake-audio".utf8))
+    #expect(result.previews[0].mediaType == "audio/mpeg")
+    #expect(result.previews[0].duration == 3.5)
+    #expect(result.previews[0].language == "en")
+}
+
+@Test func testCreateVoiceRequestConstruction() async throws {
+    let voiceJSON = """
+    {"voice_id": "permanent_123", "name": "My Voice"}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(voiceJSON.utf8), statusCode: 200)
+
+    let preview = VoicePreview(
+        id: "gen_abc123",
+        audioData: Data(),
+        mediaType: "audio/mpeg",
+        duration: 3.5,
+        language: "en"
+    )
+
+    let client = SwiftOnce(apiKey: "key", configuration: testConfiguration(), httpClient: mock)
+    let voice = try await client.createVoice(from: preview, name: "My Voice", description: "A test voice", labels: ["gender": "male"])
+
+    #expect(voice.id == "permanent_123")
+    #expect(voice.name == "My Voice")
+
+    let requests = await mock.capturedRequests
+    let request = requests[0]
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.path == "/v1/text-to-voice")
+
+    let bodyDict = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+    #expect(bodyDict["generated_voice_id"] as? String == "gen_abc123")
+    #expect(bodyDict["voice_name"] as? String == "My Voice")
+    #expect(bodyDict["voice_description"] as? String == "A test voice")
+    let labels = bodyDict["labels"] as? [String: String]
+    #expect(labels?["gender"] == "male")
+}
+
 // MARK: - Cache Tests
 
 @Test func testAudioCacheKey() {

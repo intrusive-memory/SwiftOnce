@@ -48,6 +48,7 @@ Sources/SwiftOnce/
 │   ├── Enums.swift              # Model, OutputFormat, VoiceCategory, etc.
 │   ├── Voice.swift              # Voice, VerifiedLanguage, VoiceListResponse
 │   ├── VoiceSettings.swift      # VoiceSettings
+│   ├── VoiceDesign.swift         # VoicePreview, VoiceDesignResponse, DTOs
 │   └── TimestampedResponse.swift
 ├── Networking/
 │   ├── HTTPClient.swift         # Protocol + URLSession conformance
@@ -67,6 +68,8 @@ Sources/SwiftOnce/
 | POST | `/v1/text-to-speech/{voice_id}/stream/with-timestamps` | Stream + timestamps |
 | GET | `/v2/voices` | List/search/filter voices |
 | GET | `/v1/voices/{voice_id}` | Get single voice |
+| POST | `/v1/text-to-voice/design` | Design voice from description |
+| POST | `/v1/text-to-voice` | Save designed voice permanently |
 
 ## Security
 

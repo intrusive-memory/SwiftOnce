@@ -148,3 +148,10 @@ public enum SortDirection: String, Sendable {
     case ascending = "asc"
     case descending = "desc"
 }
+
+// MARK: - Voice Design Models
+
+public enum VoiceDesignModel: String, Sendable {
+    case v2 = "eleven_multilingual_ttv_v2"
+    case v3 = "eleven_ttv_v3"
+}

@@ -327,6 +327,86 @@ public actor SwiftOnce {
         try await audioCache.totalSize()
     }
 
+    // MARK: - Voice Design
+
+    public func designVoice(
+        description: String,
+        previewText: String? = nil
+    ) async throws -> VoiceDesignResponse {
+        try await designVoice(
+            description: description,
+            previewText: previewText,
+            model: nil,
+            loudness: nil,
+            guidanceScale: nil,
+            seed: nil
+        )
+    }
+
+    public func designVoice(
+        description: String,
+        previewText: String? = nil,
+        model: VoiceDesignModel? = nil,
+        loudness: Double? = nil,
+        guidanceScale: Double? = nil,
+        seed: Int? = nil
+    ) async throws -> VoiceDesignResponse {
+        var dict: [String: Any] = [
+            "voice_description": description,
+        ]
+        if let previewText { dict["text"] = previewText }
+        if let model { dict["model_id"] = model.rawValue }
+        if let loudness { dict["loudness"] = loudness }
+        if let guidanceScale { dict["guidance_scale"] = guidanceScale }
+        if let seed { dict["seed"] = seed }
+
+        let body = try! JSONSerialization.data(withJSONObject: dict)
+        let request = Endpoint.voiceDesign
+            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, body: body, userAgent: configuration.userAgent)
+
+        let (data, response) = try await performRequest(request)
+        try validateResponse(response, data: data)
+
+        let dto = try decoder.decode(VoiceDesignResponseDTO.self, from: data)
+        let previews = try dto.previews.map { preview in
+            guard let audioData = Data(base64Encoded: preview.audioBase64) else {
+                throw ElevenLabsError.decodingError(DecodingError.dataCorrupted(
+                    .init(codingPath: [], debugDescription: "Invalid base64 audio data in voice preview")))
+            }
+            return VoicePreview(
+                id: preview.generatedVoiceId,
+                audioData: audioData,
+                mediaType: preview.mediaType,
+                duration: preview.durationSecs,
+                language: preview.language
+            )
+        }
+        return VoiceDesignResponse(previews: previews, text: dto.text)
+    }
+
+    public func createVoice(
+        from preview: VoicePreview,
+        name: String,
+        description: String,
+        labels: [String: String]? = nil
+    ) async throws -> Voice {
+        var dict: [String: Any] = [
+            "generated_voice_id": preview.id,
+            "voice_name": name,
+            "voice_description": description,
+        ]
+        if let labels { dict["labels"] = labels }
+
+        let body = try! JSONSerialization.data(withJSONObject: dict)
+        let request = Endpoint.createVoice
+            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, body: body, userAgent: configuration.userAgent)
+
+        let (data, response) = try await performRequest(request)
+        try validateResponse(response, data: data)
+
+        return try decoder.decode(Voice.self, from: data)
+    }
+
     // MARK: - Private Helpers
 
     private func performRequest(_ request: URLRequest) async throws -> (Data, URLResponse) {
