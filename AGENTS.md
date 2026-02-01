@@ -78,6 +78,7 @@ Sources/SwiftOnce/
 
 - Version numbers must be bumped manually in `Package.swift` before each release.
 - There is no automated version bump workflow.
+- Git tags are the ultimate source of truth for determining the next published version.
 
 ## GitHub Actions CI/CD
 
