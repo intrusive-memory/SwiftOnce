@@ -22,7 +22,7 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 ## Code Conventions
 
 - No UI framework imports (no SwiftUI, UIKit, AppKit). This is a pure Swift library.
-- Platforms: iOS 16+, macOS 13+, tvOS 16+, watchOS 9+, visionOS 1+.
+- Platforms: macOS 26+, iOS 26+.
 - Zero external dependencies. Only Foundation and CryptoKit.
 - Use `MARK:` comments to organize methods into logical sections.
 - Async/await throughout. No Combine, no completion handlers.
