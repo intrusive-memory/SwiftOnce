@@ -1,0 +1,22 @@
+name: Bump Version on Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump-version:
+    runs-on: macos-26
+
+    steps:
+      - name: Bump version
+        uses: intrusive-memory/github-actions/version-bump@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          bump-type: minor
+          project-type: swift-package
