@@ -74,6 +74,11 @@ Sources/SwiftOnce/
 - The library accepts API keys as constructor parameters — no Keychain dependency.
 - When verifying env vars exist, use existence checks only.
 
+## Versioning
+
+- Version numbers must be bumped manually in `Package.swift` before each release.
+- There is no automated version bump workflow.
+
 ## GitHub Actions CI/CD
 
 - Always use `macos-26` or later for runners.
