@@ -1,7 +1,7 @@
 import Foundation
 
 public actor SwiftOnce {
-    public static let version = "0.1.0"
+    public static let version = "0.2.0"
 
     private let apiKey: String
     private let configuration: SwiftOnceConfiguration
