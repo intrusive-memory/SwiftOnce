@@ -43,6 +43,7 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 Sources/SwiftOnce/
 ├── SwiftOnce.swift              # Main actor client
 ├── Configuration.swift          # SwiftOnceConfiguration
+├── ElevenLabsDefaults.swift     # Canonical constants (voice ID, scheme, URI helpers)
 ├── Errors.swift                 # ElevenLabsError
 ├── Models/
 │   ├── Enums.swift              # Model, OutputFormat, VoiceCategory, etc.
@@ -57,6 +58,34 @@ Sources/SwiftOnce/
     ├── VoiceCache.swift         # In-memory TTL cache
     └── AudioCache.swift         # File-system LRU cache
 ```
+
+## Default Voice
+
+SwiftOnce provides canonical constants and a resolution mechanism for the ElevenLabs default voice.
+
+### ElevenLabsDefaults (single source of truth)
+
+The `ElevenLabsDefaults` enum in `Sources/SwiftOnce/ElevenLabsDefaults.swift` holds:
+- `defaultVoiceId` — the canonical default ElevenLabs voice ID (`Gsndh0O5AnuI2Hj3YUlA`)
+- `providerScheme` — the URI scheme string (`elevenlabs`)
+- `voiceURI(voiceId:languageCode:)` — builds a full voice URI
+- `defaultVoiceURI(languageCode:)` — builds a URI for the default voice
+
+Downstream packages (SwiftHablare, SwiftEchada) must reference these constants instead of duplicating the strings.
+
+### Configuration
+
+`SwiftOnceConfiguration` has two default-voice properties:
+- `defaultVoiceId: String?` — defaults to `ElevenLabsDefaults.defaultVoiceId`
+- `defaultVoiceName: String?` — defaults to `"narrator"` (fallback for name-based search)
+
+### Resolution
+
+`SwiftOnce.resolveDefaultVoice()` uses this order:
+1. Return cached voice if already resolved.
+2. If `defaultVoiceId` is set, fetch via `GET /v1/voices/{id}` (fast, direct).
+3. If ID lookup fails (404, etc.), fall back to name-based search using `defaultVoiceName`.
+4. Throw `ElevenLabsError.defaultVoiceNotFound` if both fail.
 
 ## ElevenLabs API Endpoints
 
