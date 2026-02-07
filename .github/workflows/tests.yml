@@ -2,9 +2,9 @@ name: Tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
   push:
-    branches: [main]
+    branches: [main, development]
   workflow_dispatch:
 
 concurrency:
@@ -54,7 +54,7 @@ jobs:
       - name: Build for macOS
         run: |
           xcodebuild build \
-            -scheme SwiftOnce \
+            -scheme SwiftOnce-Package \
             -destination 'platform=macOS' \
             -quiet \
             CODE_SIGNING_ALLOWED=NO
@@ -64,9 +64,9 @@ jobs:
           set +e
 
           xcodebuild test \
-            -scheme SwiftOnce \
+            -scheme SwiftOnce-Package \
             -destination 'platform=macOS' \
-            -enableCodeCoverage YES \
+            -only-testing:SwiftOnceTests \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             > test_output_macos.txt 2>&1
@@ -93,6 +93,69 @@ jobs:
             echo ""
             echo "Test Summary:"
             grep -E "Test Suite|Testing failed|passed with|failed with" test_output_macos.txt | tail -10 || echo "  No summary found"
+
+            exit $TEST_EXIT_CODE
+          fi
+
+  integration-tests:
+    name: CLI Integration Tests
+    runs-on: macos-26
+    needs: [unit-tests-macos]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build CLI binary
+        run: |
+          xcodebuild build \
+            -scheme SwiftOnceCLI \
+            -destination 'platform=macOS' \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run integration tests
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        run: |
+          set +e
+
+          xcodebuild test \
+            -scheme SwiftOnce-Package \
+            -destination 'platform=macOS' \
+            -only-testing:SwiftOnceIntegrationTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            > test_output_integration.txt 2>&1
+          TEST_EXIT_CODE=$?
+          cat test_output_integration.txt
+
+          if grep -q "TEST SUCCEEDED" test_output_integration.txt; then
+            echo "All integration tests passed"
+            exit 0
+          else
+            echo ""
+            echo "============================================"
+            echo "CLI INTEGRATION TESTS FAILED"
+            echo "============================================"
+            echo ""
+
+            echo "Failed Tests:"
+            grep "Test Case.*failed" test_output_integration.txt || echo "  No specific test failures found in output"
+
+            echo ""
+            echo "Error Messages:"
+            grep -E "error:|failed with|Assertion failed|Expected|Fatal error" test_output_integration.txt | head -20 || echo "  No error messages found"
+
+            echo ""
+            echo "Test Summary:"
+            grep -E "Test Suite|Testing failed|passed with|failed with" test_output_integration.txt | tail -10 || echo "  No summary found"
 
             exit $TEST_EXIT_CODE
           fi

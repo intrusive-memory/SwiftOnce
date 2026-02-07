@@ -17,7 +17,7 @@ Add SwiftOnce as a Swift Package Manager dependency:
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/intrusive-memory/SwiftOnce.git", from: "0.1.0"),
+    .package(url: "https://github.com/intrusive-memory/SwiftOnce.git", from: "0.2.0"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: ["SwiftOnce"]),
@@ -52,7 +52,9 @@ let client = SwiftOnce(
         defaultModel: .multilingualV2,       // default TTS model
         defaultOutputFormat: .mp3_44100_128,  // default audio format
         voiceCacheTTL: 300,                   // voice cache lifetime in seconds
-        audioCacheMaxBytes: 500_000_000       // max disk cache size (500 MB)
+        audioCacheMaxBytes: 500_000_000,      // max disk cache size (500 MB)
+        defaultVoiceId: ElevenLabsDefaults.defaultVoiceId,  // for speak() without voice param
+        defaultVoiceName: "narrator"          // fallback name-based search
     )
 )
 ```
@@ -168,6 +170,21 @@ let response = try await client.designVoice(
 )
 ```
 
+### Default Voice
+
+Speak without specifying a voice — SwiftOnce resolves a default automatically:
+
+```swift
+// Uses the configured default voice (ID-based lookup, falls back to name search)
+let audio = try await client.speak("Hello, world!")
+
+// Resolve and inspect the default voice
+let voice = try await client.resolveDefaultVoice()
+print("\(voice.name) — \(voice.id)")
+```
+
+The `ElevenLabsDefaults` enum provides canonical constants for the default voice ID, provider scheme, and URI helpers.
+
 ### Cache Management
 
 SwiftOnce caches voice metadata in memory (TTL-based) and audio on disk (LRU):
@@ -227,9 +244,34 @@ do {
         print("Quota exceeded")
     case .cachingError(let underlying):
         print("Cache error: \(underlying)")
+    case .defaultVoiceNotFound(let name):
+        print("Default voice not found: \(name)")
     }
 }
 ```
+
+## CLI Tool
+
+SwiftOnce includes a command-line tool (`SwiftOnceCLI`) for interacting with the ElevenLabs API:
+
+```bash
+# List voices
+SwiftOnceCLI voices --page-size 10
+
+# Search
+SwiftOnceCLI search Rachel
+
+# Text-to-speech
+SwiftOnceCLI speak -o output.mp3 "Hello, world!"
+
+# With a specific voice
+SwiftOnceCLI speak --voice JBFqnCBsd6RMkjVDRZzb -o output.mp3 "Hello"
+
+# Show default voice
+SwiftOnceCLI default-voice
+```
+
+Requires `ELEVENLABS_API_KEY` environment variable for all commands except `version` and `help`.
 
 ## Architecture
 

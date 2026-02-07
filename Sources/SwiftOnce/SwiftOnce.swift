@@ -1,7 +1,7 @@
 import Foundation
 
 public actor SwiftOnce {
-    public static let version = "0.1.0"
+    public static let version = "0.2.0"
 
     private let apiKey: String
     private let configuration: SwiftOnceConfiguration
@@ -9,6 +9,7 @@ public actor SwiftOnce {
     private let voiceCache: VoiceCache
     private let audioCache: AudioCache
     private let decoder: JSONDecoder
+    private var resolvedDefaultVoice: Voice?
 
     public init(
         apiKey: String,
@@ -21,6 +22,60 @@ public actor SwiftOnce {
         self.voiceCache = VoiceCache(ttl: configuration.voiceCacheTTL)
         self.audioCache = AudioCache(directory: configuration.audioCacheDirectory, maxBytes: configuration.audioCacheMaxBytes)
         self.decoder = JSONDecoder()
+    }
+
+    // MARK: - Default Voice
+
+    public var defaultVoice: Voice? { resolvedDefaultVoice }
+
+    /// Resolves the default voice.
+    ///
+    /// Resolution order:
+    /// 1. Return cached voice if already resolved.
+    /// 2. If `configuration.defaultVoiceId` is set, fetch by ID via
+    ///    `GET /v1/voices/{id}` (faster than a search).
+    /// 3. If ID lookup fails or is nil, fall back to name-based search
+    ///    using `configuration.defaultVoiceName`.
+    /// 4. Throw `.defaultVoiceNotFound` if both fail.
+    @discardableResult
+    public func resolveDefaultVoice() async throws -> Voice {
+        if let cached = resolvedDefaultVoice {
+            return cached
+        }
+
+        // Try ID-based lookup first (fast, direct GET)
+        if let voiceId = configuration.defaultVoiceId {
+            do {
+                let match = try await voice(voiceId)
+                resolvedDefaultVoice = match
+                return match
+            } catch {
+                // ID lookup failed (404, network, etc.) — fall through to name search
+            }
+        }
+
+        // Fall back to name-based search
+        guard let name = configuration.defaultVoiceName else {
+            throw ElevenLabsError.defaultVoiceNotFound(
+                configuration.defaultVoiceId ?? "No default voice ID or name configured"
+            )
+        }
+        let result = try await voices(search: name)
+        let lowered = name.lowercased()
+        guard let match = result.voices.first(where: { $0.name.lowercased() == lowered }) else {
+            throw ElevenLabsError.defaultVoiceNotFound(name)
+        }
+        resolvedDefaultVoice = match
+        return match
+    }
+
+    public func speak(
+        _ text: String,
+        model: Model? = nil,
+        outputFormat: OutputFormat? = nil
+    ) async throws -> Data {
+        let voice = try await resolveDefaultVoice()
+        return try await speak(text, voice: voice.voiceId, model: model, outputFormat: outputFormat)
     }
 
     // MARK: - Text to Speech (Simple)
@@ -317,6 +372,7 @@ public actor SwiftOnce {
 
     public func invalidateVoiceCache() async {
         await voiceCache.invalidate()
+        resolvedDefaultVoice = nil
     }
 
     // MARK: - Audio Cache Management

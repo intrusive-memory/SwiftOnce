@@ -342,6 +342,234 @@ private func testConfiguration() -> SwiftOnceConfiguration {
     #expect(labels?["gender"] == "male")
 }
 
+// MARK: - ElevenLabsDefaults Tests
+
+@Test func testElevenLabsDefaultsConstantValues() {
+    #expect(ElevenLabsDefaults.defaultVoiceId == "Gsndh0O5AnuI2Hj3YUlA")
+    #expect(ElevenLabsDefaults.providerScheme == "elevenlabs")
+}
+
+@Test func testElevenLabsDefaultsVoiceURI() {
+    let uri = ElevenLabsDefaults.voiceURI(voiceId: "abc123")
+    #expect(uri == "elevenlabs://en/abc123")
+
+    let frenchURI = ElevenLabsDefaults.voiceURI(voiceId: "abc123", languageCode: "fr")
+    #expect(frenchURI == "elevenlabs://fr/abc123")
+}
+
+@Test func testElevenLabsDefaultsDefaultVoiceURI() {
+    let uri = ElevenLabsDefaults.defaultVoiceURI()
+    #expect(uri == "elevenlabs://en/Gsndh0O5AnuI2Hj3YUlA")
+
+    let spanishURI = ElevenLabsDefaults.defaultVoiceURI(languageCode: "es")
+    #expect(spanishURI == "elevenlabs://es/Gsndh0O5AnuI2Hj3YUlA")
+}
+
+@Test func testConfigurationDefaultVoiceId() {
+    let config = SwiftOnceConfiguration()
+    #expect(config.defaultVoiceId == ElevenLabsDefaults.defaultVoiceId)
+
+    let customConfig = SwiftOnceConfiguration(defaultVoiceId: "custom-id")
+    #expect(customConfig.defaultVoiceId == "custom-id")
+
+    let nilConfig = SwiftOnceConfiguration(defaultVoiceId: nil)
+    #expect(nilConfig.defaultVoiceId == nil)
+}
+
+// MARK: - Default Voice Tests
+
+@Test func testResolveDefaultVoiceByIdFirst() async throws {
+    let voiceJSON = """
+    {"voice_id": "Gsndh0O5AnuI2Hj3YUlA", "name": "Default Voice"}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(voiceJSON.utf8), statusCode: 200)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: "Gsndh0O5AnuI2Hj3YUlA"
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    let voice = try await client.resolveDefaultVoice()
+
+    #expect(voice.id == "Gsndh0O5AnuI2Hj3YUlA")
+    #expect(voice.name == "Default Voice")
+
+    // Should have used GET /v1/voices/{id}, not search
+    let requests = await mock.capturedRequests
+    #expect(requests.count == 1)
+    #expect(requests[0].url?.path == "/v1/voices/Gsndh0O5AnuI2Hj3YUlA")
+}
+
+@Test func testResolveDefaultVoiceFallsBackToNameOnId404() async throws {
+    let voicesJSON = """
+    {"voices": [{"voice_id": "narrator1", "name": "Narrator"}], "has_more": false}
+    """
+    let mock = MockHTTPClient()
+    // First: ID lookup returns 404
+    await mock.enqueue(data: Data("not found".utf8), statusCode: 404)
+    // Second: name search succeeds
+    await mock.enqueue(data: Data(voicesJSON.utf8), statusCode: 200)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: "bad-id",
+        defaultVoiceName: "narrator"
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    let voice = try await client.resolveDefaultVoice()
+
+    #expect(voice.id == "narrator1")
+    #expect(voice.name == "Narrator")
+
+    let requests = await mock.capturedRequests
+    #expect(requests.count == 2) // ID lookup + name search
+}
+
+@Test func testResolveDefaultVoiceThrowsWhenBothFail() async {
+    let mock = MockHTTPClient()
+    // ID lookup returns 404
+    await mock.enqueue(data: Data("not found".utf8), statusCode: 404)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: "bad-id",
+        defaultVoiceName: nil
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    do {
+        _ = try await client.resolveDefaultVoice()
+        #expect(Bool(false), "Should have thrown")
+    } catch let error as ElevenLabsError {
+        if case .defaultVoiceNotFound = error {
+            // expected
+        } else {
+            #expect(Bool(false), "Wrong error type: \(error)")
+        }
+    } catch {
+        #expect(Bool(false), "Unexpected error: \(error)")
+    }
+}
+
+@Test func testResolveDefaultVoiceCaseInsensitive() async throws {
+    let json = """
+    {"voices": [{"voice_id": "narrator1", "name": "Narrator"}], "has_more": false}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(json.utf8), statusCode: 200)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: nil,
+        defaultVoiceName: "narrator"
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    let voice = try await client.resolveDefaultVoice()
+    #expect(voice.id == "narrator1")
+    #expect(voice.name == "Narrator")
+
+    // Verify it's cached on the actor
+    let cached = await client.defaultVoice
+    #expect(cached?.id == "narrator1")
+}
+
+@Test func testResolveDefaultVoiceNotFoundThrows() async {
+    let json = """
+    {"voices": [{"voice_id": "other", "name": "Rachel"}], "has_more": false}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(json.utf8), statusCode: 200)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: nil,
+        defaultVoiceName: "narrator"
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    do {
+        _ = try await client.resolveDefaultVoice()
+        #expect(Bool(false), "Should have thrown")
+    } catch let error as ElevenLabsError {
+        if case .defaultVoiceNotFound(let name) = error {
+            #expect(name == "narrator")
+        } else {
+            #expect(Bool(false), "Wrong error type: \(error)")
+        }
+    } catch {
+        #expect(Bool(false), "Unexpected error: \(error)")
+    }
+}
+
+@Test func testResolveDefaultVoiceNilNameThrows() async {
+    let mock = MockHTTPClient()
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: nil,
+        defaultVoiceName: nil
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    do {
+        _ = try await client.resolveDefaultVoice()
+        #expect(Bool(false), "Should have thrown")
+    } catch let error as ElevenLabsError {
+        if case .defaultVoiceNotFound = error {
+            // expected
+        } else {
+            #expect(Bool(false), "Wrong error type: \(error)")
+        }
+    } catch {
+        #expect(Bool(false), "Unexpected error: \(error)")
+    }
+}
+
+@Test func testSpeakWithoutVoiceUsesDefault() async throws {
+    let voicesJSON = """
+    {"voices": [{"voice_id": "narrator1", "name": "Narrator"}], "has_more": false}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(voicesJSON.utf8), statusCode: 200)
+    await mock.enqueue(data: Data("fake-audio".utf8), statusCode: 200)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: nil,
+        defaultVoiceName: "narrator"
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    let result = try await client.speak("Hello world")
+    #expect(result == Data("fake-audio".utf8))
+
+    let requests = await mock.capturedRequests
+    #expect(requests.count == 2)
+    // Second request should be TTS with narrator1 voice
+    #expect(requests[1].url?.path.contains("/v1/text-to-speech/narrator1") == true)
+}
+
+@Test func testInvalidateVoiceCacheClearsDefaultVoice() async throws {
+    let json = """
+    {"voices": [{"voice_id": "narrator1", "name": "Narrator"}], "has_more": false}
+    """
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(json.utf8), statusCode: 200)
+
+    let config = SwiftOnceConfiguration(
+        audioCacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+        defaultVoiceId: nil,
+        defaultVoiceName: "narrator"
+    )
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
+    _ = try await client.resolveDefaultVoice()
+    #expect(await client.defaultVoice != nil)
+
+    await client.invalidateVoiceCache()
+    #expect(await client.defaultVoice == nil)
+}
+
+@Test func testConfigurationDefaultVoiceNameDefault() {
+    let config = SwiftOnceConfiguration()
+    #expect(config.defaultVoiceName == "narrator")
+}
+
 // MARK: - Cache Tests
 
 @Test func testAudioCacheKey() {

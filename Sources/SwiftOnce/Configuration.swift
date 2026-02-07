@@ -9,6 +9,8 @@ public struct SwiftOnceConfiguration: Sendable {
     public var defaultModel: Model
     public var defaultOutputFormat: OutputFormat
     public var enableLogging: Bool
+    public var defaultVoiceId: String?
+    public var defaultVoiceName: String?
 
     public init(
         baseURL: URL = URL(string: "https://api.elevenlabs.io")!,
@@ -18,7 +20,9 @@ public struct SwiftOnceConfiguration: Sendable {
         audioCacheMaxBytes: Int64 = 500_000_000,
         defaultModel: Model = .multilingualV2,
         defaultOutputFormat: OutputFormat = .mp3_44100_128,
-        enableLogging: Bool = false
+        enableLogging: Bool = false,
+        defaultVoiceId: String? = ElevenLabsDefaults.defaultVoiceId,
+        defaultVoiceName: String? = "narrator"
     ) {
         self.baseURL = baseURL
         self.userAgent = userAgent
@@ -28,5 +32,7 @@ public struct SwiftOnceConfiguration: Sendable {
         self.defaultModel = defaultModel
         self.defaultOutputFormat = defaultOutputFormat
         self.enableLogging = enableLogging
+        self.defaultVoiceId = defaultVoiceId
+        self.defaultVoiceName = defaultVoiceName
     }
 }

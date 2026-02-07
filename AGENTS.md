@@ -6,8 +6,10 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 
 ## Build & Test
 
-- **Build:** `xcodebuild build -scheme SwiftOnce -destination 'platform=macOS'`
-- **Test:** `xcodebuild test -scheme SwiftOnce -destination 'platform=macOS'`
+- **Build library:** `xcodebuild build -scheme SwiftOnce -destination 'platform=macOS'`
+- **Build CLI:** `xcodebuild build -scheme SwiftOnceCLI -destination 'platform=macOS'`
+- **Unit tests:** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS' -only-testing:SwiftOnceTests`
+- **All tests (unit + integration):** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS'`
 - Do NOT use `swift build` or `swift test` — always use `xcodebuild`.
 - Swift tools version is 6.2. All code must compile under Swift 6 strict concurrency.
 
@@ -43,6 +45,7 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 Sources/SwiftOnce/
 ├── SwiftOnce.swift              # Main actor client
 ├── Configuration.swift          # SwiftOnceConfiguration
+├── ElevenLabsDefaults.swift     # Canonical constants (voice ID, scheme, URI helpers)
 ├── Errors.swift                 # ElevenLabsError
 ├── Models/
 │   ├── Enums.swift              # Model, OutputFormat, VoiceCategory, etc.
@@ -56,7 +59,73 @@ Sources/SwiftOnce/
 └── Cache/
     ├── VoiceCache.swift         # In-memory TTL cache
     └── AudioCache.swift         # File-system LRU cache
+
+Sources/SwiftOnceCLI/
+├── SwiftOnceCLI.swift           # @main entry point, command dispatch
+├── Commands.swift               # Command implementations (voices, search, speak, etc.)
+└── Helpers.swift                # Output formatting, usage text, error display
+
+Tests/SwiftOnceTests/            # Unit tests (mock networking)
+Tests/SwiftOnceIntegrationTests/
+├── CLIRunner.swift              # Locates and runs the compiled CLI binary
+└── IntegrationTests.swift       # End-to-end CLI tests (some require ELEVENLABS_API_KEY)
 ```
+
+## CLI (SwiftOnceCLI)
+
+A lightweight command-line tool for interacting with the ElevenLabs API.
+
+**Build:** `xcodebuild build -scheme SwiftOnceCLI -destination 'platform=macOS'`
+
+**Commands:**
+| Command | Description |
+|---------|-------------|
+| `voices [--page-size N]` | List available voices |
+| `search <query>` | Search voices by name |
+| `voice <id>` | Get details for a specific voice |
+| `speak [--voice <id>] [-o <path>] <text>` | Text-to-speech (default voice if --voice omitted) |
+| `default-voice [--name <name>]` | Resolve and display the default voice |
+| `version` | Show version |
+
+**Environment:** Requires `ELEVENLABS_API_KEY` for all commands except `version` and `help`.
+
+## Integration Tests
+
+CLI integration tests live in `Tests/SwiftOnceIntegrationTests/`. They locate and run the compiled `SwiftOnceCLI` binary.
+
+**Run:** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS' -only-testing:SwiftOnceIntegrationTests`
+
+**Binary discovery:** `CLIRunner` checks `SWIFTONCE_CLI_PATH` env var first, then searches DerivedData for the most recently modified binary.
+
+**API key tests:** Tests guarded by `apiKeyIsAvailable()` silently pass when `ELEVENLABS_API_KEY` is not set. In CI, the key is injected from secrets.
+
+## Default Voice
+
+SwiftOnce provides canonical constants and a resolution mechanism for the ElevenLabs default voice.
+
+### ElevenLabsDefaults (single source of truth)
+
+The `ElevenLabsDefaults` enum in `Sources/SwiftOnce/ElevenLabsDefaults.swift` holds:
+- `defaultVoiceId` — the canonical default ElevenLabs voice ID (`Gsndh0O5AnuI2Hj3YUlA`)
+- `providerScheme` — the URI scheme string (`elevenlabs`)
+- `voiceURI(voiceId:languageCode:)` — builds a full voice URI
+- `defaultVoiceURI(languageCode:)` — builds a URI for the default voice
+
+Downstream packages (SwiftHablare, SwiftEchada) must reference these constants instead of duplicating the strings.
+
+### Configuration
+
+`SwiftOnceConfiguration` has two default-voice properties:
+- `defaultVoiceId: String?` — defaults to `ElevenLabsDefaults.defaultVoiceId`
+- `defaultVoiceName: String?` — defaults to `"narrator"` (fallback for name-based search)
+
+### Resolution
+
+`SwiftOnce.resolveDefaultVoice()` uses this order:
+1. Return cached voice if already resolved.
+2. If `defaultVoiceId` is set, fetch via `GET /v1/voices/{id}` (fast, direct).
+3. If ID lookup fails (404, etc.), fall back to name-based search using `defaultVoiceName`.
+4. Throw `ElevenLabsError.defaultVoiceNotFound` if both fail.
 
 ## ElevenLabs API Endpoints
 
@@ -79,12 +148,21 @@ Sources/SwiftOnce/
 
 ## Versioning
 
-- Version numbers must be bumped manually in `Package.swift` before each release.
-- There is no automated version bump workflow.
+- Version is defined in `Sources/SwiftOnce/SwiftOnce.swift` as `SwiftOnce.version`.
+- Version bump, doc audit, and release are handled by the `/ship-swift-library` skill.
 - Git tags are the ultimate source of truth for determining the next published version.
 
 ## GitHub Actions CI/CD
 
+The CI pipeline (`.github/workflows/tests.yml`) has three jobs:
+
+1. **Code Quality** — checks for TODOs, large files, print statements
+2. **macOS Unit Tests** — builds and runs unit tests (depends on Code Quality)
+3. **CLI Integration Tests** — builds CLI binary and runs integration tests (depends on Unit Tests)
+
+The `ELEVENLABS_API_KEY` repository secret is injected into integration tests so API-dependent tests run in CI.
+
+Rules:
 - Always use `macos-26` or later for runners.
 - Swift version must be 6.2 or later.
 - iOS simulator destination: `'platform=iOS Simulator,name=iPhone 17,OS=26.1'`

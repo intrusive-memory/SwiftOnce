@@ -10,4 +10,5 @@ public enum ElevenLabsError: Error, Sendable {
     case decodingError(any Error)
     case networkError(any Error)
     case cachingError(any Error)
+    case defaultVoiceNotFound(String)
 }
