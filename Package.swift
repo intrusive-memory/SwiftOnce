@@ -9,6 +9,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "SwiftOnce"),
+        .executableTarget(name: "SwiftOnceCLI", dependencies: ["SwiftOnce"]),
         .testTarget(name: "SwiftOnceTests", dependencies: ["SwiftOnce"]),
+        .testTarget(name: "SwiftOnceIntegrationTests", dependencies: ["SwiftOnce"]),
     ]
 )

@@ -6,8 +6,10 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 
 ## Build & Test
 
-- **Build:** `xcodebuild build -scheme SwiftOnce -destination 'platform=macOS'`
-- **Test:** `xcodebuild test -scheme SwiftOnce -destination 'platform=macOS'`
+- **Build library:** `xcodebuild build -scheme SwiftOnce -destination 'platform=macOS'`
+- **Build CLI:** `xcodebuild build -scheme SwiftOnceCLI -destination 'platform=macOS'`
+- **Unit tests:** `xcodebuild test -scheme SwiftOnce -destination 'platform=macOS'`
+- **All tests (unit + integration):** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS'`
 - Do NOT use `swift build` or `swift test` — always use `xcodebuild`.
 - Swift tools version is 6.2. All code must compile under Swift 6 strict concurrency.
 
@@ -57,7 +59,45 @@ Sources/SwiftOnce/
 └── Cache/
     ├── VoiceCache.swift         # In-memory TTL cache
     └── AudioCache.swift         # File-system LRU cache
+
+Sources/SwiftOnceCLI/
+├── SwiftOnceCLI.swift           # @main entry point, command dispatch
+├── Commands.swift               # Command implementations (voices, search, speak, etc.)
+└── Helpers.swift                # Output formatting, usage text, error display
+
+Tests/SwiftOnceTests/            # Unit tests (mock networking)
+Tests/SwiftOnceIntegrationTests/
+├── CLIRunner.swift              # Locates and runs the compiled CLI binary
+└── IntegrationTests.swift       # End-to-end CLI tests (some require ELEVENLABS_API_KEY)
 ```
+
+## CLI (SwiftOnceCLI)
+
+A lightweight command-line tool for interacting with the ElevenLabs API.
+
+**Build:** `xcodebuild build -scheme SwiftOnceCLI -destination 'platform=macOS'`
+
+**Commands:**
+| Command | Description |
+|---------|-------------|
+| `voices [--page-size N]` | List available voices |
+| `search <query>` | Search voices by name |
+| `voice <id>` | Get details for a specific voice |
+| `speak [--voice <id>] [-o <path>] <text>` | Text-to-speech (default voice if --voice omitted) |
+| `default-voice [--name <name>]` | Resolve and display the default voice |
+| `version` | Show version |
+
+**Environment:** Requires `ELEVENLABS_API_KEY` for all commands except `version` and `help`.
+
+## Integration Tests
+
+CLI integration tests live in `Tests/SwiftOnceIntegrationTests/`. They locate and run the compiled `SwiftOnceCLI` binary.
+
+**Run:** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS' -only-testing:SwiftOnceIntegrationTests`
+
+**Binary discovery:** `CLIRunner` checks `SWIFTONCE_CLI_PATH` env var first, then searches DerivedData for the most recently modified binary.
+
+**API key tests:** Tests guarded by `apiKeyIsAvailable()` silently pass when `ELEVENLABS_API_KEY` is not set. In CI, the key is injected from secrets.
 
 ## Default Voice
 
