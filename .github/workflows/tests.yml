@@ -54,7 +54,7 @@ jobs:
       - name: Build for macOS
         run: |
           xcodebuild build \
-            -scheme SwiftOnce \
+            -scheme SwiftOnce-Package \
             -destination 'platform=macOS' \
             -quiet \
             CODE_SIGNING_ALLOWED=NO
@@ -64,8 +64,9 @@ jobs:
           set +e
 
           xcodebuild test \
-            -scheme SwiftOnce \
+            -scheme SwiftOnce-Package \
             -destination 'platform=macOS' \
+            -only-testing:SwiftOnceTests \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             > test_output_macos.txt 2>&1
