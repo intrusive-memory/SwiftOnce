@@ -8,7 +8,7 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 
 - **Build library:** `xcodebuild build -scheme SwiftOnce -destination 'platform=macOS'`
 - **Build CLI:** `xcodebuild build -scheme SwiftOnceCLI -destination 'platform=macOS'`
-- **Unit tests:** `xcodebuild test -scheme SwiftOnce -destination 'platform=macOS'`
+- **Unit tests:** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS' -only-testing:SwiftOnceTests`
 - **All tests (unit + integration):** `xcodebuild test -scheme SwiftOnce-Package -destination 'platform=macOS'`
 - Do NOT use `swift build` or `swift test` — always use `xcodebuild`.
 - Swift tools version is 6.2. All code must compile under Swift 6 strict concurrency.
@@ -148,12 +148,21 @@ Downstream packages (SwiftHablare, SwiftEchada) must reference these constants i
 
 ## Versioning
 
-- Version numbers must be bumped manually in `Package.swift` before each release.
-- There is no automated version bump workflow.
+- Version is defined in `Sources/SwiftOnce/SwiftOnce.swift` as `SwiftOnce.version`.
+- Version bump, doc audit, and release are handled by the `/ship-swift-library` skill.
 - Git tags are the ultimate source of truth for determining the next published version.
 
 ## GitHub Actions CI/CD
 
+The CI pipeline (`.github/workflows/tests.yml`) has three jobs:
+
+1. **Code Quality** — checks for TODOs, large files, print statements
+2. **macOS Unit Tests** — builds and runs unit tests (depends on Code Quality)
+3. **CLI Integration Tests** — builds CLI binary and runs integration tests (depends on Unit Tests)
+
+The `ELEVENLABS_API_KEY` repository secret is injected into integration tests so API-dependent tests run in CI.
+
+Rules:
 - Always use `macos-26` or later for runners.
 - Swift version must be 6.2 or later.
 - iOS simulator destination: `'platform=iOS Simulator,name=iPhone 17,OS=26.1'`
