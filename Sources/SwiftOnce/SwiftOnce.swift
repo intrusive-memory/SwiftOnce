@@ -11,6 +11,10 @@ public actor SwiftOnce {
     private let decoder: JSONDecoder
     private var resolvedDefaultVoice: Voice?
 
+    // Concurrency gate for API rate limiting
+    private var activeRequests = 0
+    private var waitingContinuations: [CheckedContinuation<Void, Never>] = []
+
     public init(
         apiKey: String,
         configuration: SwiftOnceConfiguration = .init(),
@@ -465,14 +469,58 @@ public actor SwiftOnce {
         return try decoder.decode(Voice.self, from: data)
     }
 
+    // MARK: - Concurrency Gate
+
+    private func acquireSlot() async {
+        if activeRequests < configuration.maxConcurrentRequests {
+            activeRequests += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waitingContinuations.append(continuation)
+        }
+    }
+
+    private func releaseSlot() {
+        if let next = waitingContinuations.first {
+            waitingContinuations.removeFirst()
+            next.resume()
+        } else {
+            activeRequests -= 1
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func performRequest(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        do {
-            return try await httpClient.data(for: request)
-        } catch {
-            throw ElevenLabsError.networkError(error)
+        await acquireSlot()
+        defer { releaseSlot() }
+
+        var lastError: (any Error)?
+        for attempt in 0...configuration.maxRetries {
+            do {
+                let (data, response) = try await httpClient.data(for: request)
+
+                // Check for rate limiting before returning
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
+                    let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
+                    let delay = retryAfter ?? min(1 << attempt, 30)
+                    if attempt < configuration.maxRetries {
+                        try await Task.sleep(for: .seconds(delay))
+                        lastError = ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter)
+                        continue
+                    }
+                    throw ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter)
+                }
+
+                return (data, response)
+            } catch let error as ElevenLabsError {
+                throw error
+            } catch {
+                throw ElevenLabsError.networkError(error)
+            }
         }
+        throw lastError ?? ElevenLabsError.rateLimited(retryAfterSeconds: nil)
     }
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {
@@ -489,6 +537,8 @@ public actor SwiftOnce {
         case 422:
             throw ElevenLabsError.invalidRequest(String(data: data, encoding: .utf8) ?? "")
         case 429:
+            // Should not reach here (handled in performRequest with retry),
+            // but kept as a safety net
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
             throw ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter)
         default:
