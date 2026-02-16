@@ -108,8 +108,19 @@ SwiftOnce provides canonical constants and a resolution mechanism for the Eleven
 The `ElevenLabsDefaults` enum in `Sources/SwiftOnce/ElevenLabsDefaults.swift` holds:
 - `defaultVoiceId` — the canonical default ElevenLabs voice ID (`Gsndh0O5AnuI2Hj3YUlA`)
 - `providerScheme` — the URI scheme string (`elevenlabs`)
-- `voiceURI(voiceId:languageCode:)` — builds a full voice URI
+- `voiceURI(voiceId:languageCode:)` — builds a full voice URI in SwiftHablare standard format
 - `defaultVoiceURI(languageCode:)` — builds a URI for the default voice
+
+#### Voice URI Format
+
+All voice URIs follow the **SwiftHablare standard**: `<provider>://<voiceId>?lang=<languageCode>`
+
+Examples:
+- `elevenlabs://Gsndh0O5AnuI2Hj3YUlA?lang=en`
+- `elevenlabs://21m00Tcm4TlvDq8ikWAM?lang=fr`
+- `elevenlabs://abc123` (language omitted)
+
+The `voiceId` is the URL host, and the language code is an optional `lang` query parameter. This matches SwiftHablare's `VoiceURI` parser which extracts `url.host` as the voice ID and `?lang=` as the language code.
 
 Downstream packages (SwiftHablare, SwiftEchada) must reference these constants instead of duplicating the strings.
 

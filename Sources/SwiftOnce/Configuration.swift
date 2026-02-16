@@ -11,6 +11,13 @@ public struct SwiftOnceConfiguration: Sendable {
     public var enableLogging: Bool
     public var defaultVoiceId: String?
     public var defaultVoiceName: String?
+    /// Maximum concurrent API requests. ElevenLabs limits by tier:
+    /// Free: 2, Starter: 3, Creator: 5, Pro: 10, Scale: 15, Business: 15.
+    /// Default is 8 (safe for Pro tier).
+    public var maxConcurrentRequests: Int
+    /// Maximum retry attempts on rate-limit (HTTP 429) responses.
+    /// Uses exponential backoff with the Retry-After header when available.
+    public var maxRetries: Int
 
     public init(
         baseURL: URL = URL(string: "https://api.elevenlabs.io")!,
@@ -22,7 +29,9 @@ public struct SwiftOnceConfiguration: Sendable {
         defaultOutputFormat: OutputFormat = .mp3_44100_128,
         enableLogging: Bool = false,
         defaultVoiceId: String? = ElevenLabsDefaults.defaultVoiceId,
-        defaultVoiceName: String? = "narrator"
+        defaultVoiceName: String? = "narrator",
+        maxConcurrentRequests: Int = 8,
+        maxRetries: Int = 3
     ) {
         self.baseURL = baseURL
         self.userAgent = userAgent
@@ -34,5 +43,7 @@ public struct SwiftOnceConfiguration: Sendable {
         self.enableLogging = enableLogging
         self.defaultVoiceId = defaultVoiceId
         self.defaultVoiceName = defaultVoiceName
+        self.maxConcurrentRequests = maxConcurrentRequests
+        self.maxRetries = maxRetries
     }
 }

@@ -205,9 +205,14 @@ private func testConfiguration() -> SwiftOnceConfiguration {
 
 @Test func testRateLimitThrows() async {
     let mock = MockHTTPClient()
-    await mock.enqueue(data: Data("rate limited".utf8), statusCode: 429)
+    // Enqueue enough 429 responses to exhaust initial attempt + all retries
+    var config = testConfiguration()
+    config.maxRetries = 1
+    for _ in 0...(config.maxRetries + 1) {
+        await mock.enqueue(data: Data("rate limited".utf8), statusCode: 429)
+    }
 
-    let client = SwiftOnce(apiKey: "key", configuration: testConfiguration(), httpClient: mock)
+    let client = SwiftOnce(apiKey: "key", configuration: config, httpClient: mock)
     do {
         _ = try await client.speak("Hi", voice: "v1")
         #expect(Bool(false), "Should have thrown")
@@ -351,18 +356,24 @@ private func testConfiguration() -> SwiftOnceConfiguration {
 
 @Test func testElevenLabsDefaultsVoiceURI() {
     let uri = ElevenLabsDefaults.voiceURI(voiceId: "abc123")
-    #expect(uri == "elevenlabs://en/abc123")
+    #expect(uri == "elevenlabs://abc123?lang=en")
 
     let frenchURI = ElevenLabsDefaults.voiceURI(voiceId: "abc123", languageCode: "fr")
-    #expect(frenchURI == "elevenlabs://fr/abc123")
+    #expect(frenchURI == "elevenlabs://abc123?lang=fr")
+
+    let noLangURI = ElevenLabsDefaults.voiceURI(voiceId: "abc123", languageCode: nil)
+    #expect(noLangURI == "elevenlabs://abc123")
 }
 
 @Test func testElevenLabsDefaultsDefaultVoiceURI() {
     let uri = ElevenLabsDefaults.defaultVoiceURI()
-    #expect(uri == "elevenlabs://en/Gsndh0O5AnuI2Hj3YUlA")
+    #expect(uri == "elevenlabs://Gsndh0O5AnuI2Hj3YUlA?lang=en")
 
     let spanishURI = ElevenLabsDefaults.defaultVoiceURI(languageCode: "es")
-    #expect(spanishURI == "elevenlabs://es/Gsndh0O5AnuI2Hj3YUlA")
+    #expect(spanishURI == "elevenlabs://Gsndh0O5AnuI2Hj3YUlA?lang=es")
+
+    let noLangURI = ElevenLabsDefaults.defaultVoiceURI(languageCode: nil)
+    #expect(noLangURI == "elevenlabs://Gsndh0O5AnuI2Hj3YUlA")
 }
 
 @Test func testConfigurationDefaultVoiceId() {
