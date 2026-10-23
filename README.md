@@ -8,7 +8,7 @@ The name is pronounced "UN-say", from the Spanish word for eleven.
 
 - Swift 6.2+
 - macOS 26+ / iOS 26+
-- Xcode 17+
+- Xcode 26+
 
 ## Installation
 
@@ -17,7 +17,7 @@ Add SwiftOnce as a Swift Package Manager dependency:
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/intrusive-memory/SwiftOnce.git", from: "0.2.0"),
+    .package(url: "https://github.com/intrusive-memory/SwiftOnce.git", from: "1.0.0"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: ["SwiftOnce"]),
@@ -54,7 +54,9 @@ let client = SwiftOnce(
         voiceCacheTTL: 300,                   // voice cache lifetime in seconds
         audioCacheMaxBytes: 500_000_000,      // max disk cache size (500 MB)
         defaultVoiceId: ElevenLabsDefaults.defaultVoiceId,  // for speak() without voice param
-        defaultVoiceName: "narrator"          // fallback name-based search
+        defaultVoiceName: "narrator",         // fallback name-based search
+        maxConcurrentRequests: 8,             // in-flight request cap (match your ElevenLabs tier)
+        maxRetries: 3                         // retries on HTTP 429, exponential backoff
     )
 )
 ```
@@ -279,6 +281,7 @@ Requires `ELEVENLABS_API_KEY` environment variable for all commands except `vers
 - Zero external dependencies (Foundation + CryptoKit only)
 - All public types conform to `Sendable`
 - Injectable `HTTPClient` protocol for testing
+- Built-in rate limiting: concurrent requests are capped at `maxConcurrentRequests` (ElevenLabs limits concurrency per tier: Free 2, Starter 3, Creator 5, Pro 10, Scale/Business 15), and HTTP 429 responses are retried up to `maxRetries` times with exponential backoff, honoring `Retry-After`. `ElevenLabsError.rateLimited` is thrown only after retries are exhausted.
 
 ## License
 

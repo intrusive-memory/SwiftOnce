@@ -19,6 +19,7 @@ SwiftOnce (pronounced "UN-say", from Spanish for eleven) is a Swift 6.2 library 
 - **Networking:** `HTTPClient` protocol with `URLSession` conformance. Injectable for testing.
 - **Caching:** Two actor-based caches — `VoiceCache` (in-memory, TTL) and `AudioCache` (file-system, LRU with SHA256 keys via CryptoKit).
 - **Models:** All public types are `Sendable`, `Codable`, and use explicit `CodingKeys` for snake_case JSON mapping.
+- **Rate limiting:** `performRequest` gates in-flight calls with an actor-isolated semaphore (`maxConcurrentRequests`, default 8) and retries HTTP 429 with exponential backoff honoring `Retry-After` (`maxRetries`, default 3).
 - **Errors:** Single `ElevenLabsError` enum covers all failure modes.
 
 ## Code Conventions
