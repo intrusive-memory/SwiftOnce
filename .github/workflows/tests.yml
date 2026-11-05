@@ -14,7 +14,7 @@ concurrency:
 jobs:
   code-quality:
     name: Code Quality
-    runs-on: macos-26
+    runs-on: xcode-27
 
     steps:
       - name: Checkout code
@@ -38,7 +38,7 @@ jobs:
 
   unit-tests-macos:
     name: macOS Unit Tests
-    runs-on: macos-26
+    runs-on: xcode-27
     needs: [code-quality]
 
     steps:
@@ -99,7 +99,7 @@ jobs:
 
   integration-tests:
     name: CLI Integration Tests
-    runs-on: macos-26
+    runs-on: xcode-27
     needs: [unit-tests-macos]
 
     steps:
