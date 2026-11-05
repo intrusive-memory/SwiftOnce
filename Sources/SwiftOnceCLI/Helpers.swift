@@ -59,5 +59,11 @@ func formatError(_ error: any Error) -> String {
         return "Caching error: \(underlying.localizedDescription)"
     case .defaultVoiceNotFound(let name):
         return "Default voice not found: \(name)"
+    case .voiceLimitReached(let detail):
+        return "Voice limit reached." + (detail.map { " \($0)" } ?? "")
+    case .textTooLong(let model, let limit, let count):
+        return "Text is \(count) characters; \(model) allows \(limit) per request."
+    case .invalidDesignText(let count):
+        return "Voice design text is \(count) characters; it must be 100 to 1000."
     }
 }

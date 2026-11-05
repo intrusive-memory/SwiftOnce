@@ -9,6 +9,9 @@ enum Endpoint {
     case voice(voiceId: String)
     case voiceDesign
     case createVoice
+    case deleteVoice(voiceId: String)
+    case models
+    case subscription
 
     var path: String {
         switch self {
@@ -28,6 +31,12 @@ enum Endpoint {
             "/v1/text-to-voice/design"
         case .createVoice:
             "/v1/text-to-voice"
+        case .deleteVoice(let voiceId):
+            "/v1/voices/\(voiceId)"
+        case .models:
+            "/v1/models"
+        case .subscription:
+            "/v1/user/subscription"
         }
     }
 
@@ -38,8 +47,10 @@ enum Endpoint {
             "POST"
         case .voiceDesign, .createVoice:
             "POST"
-        case .voices, .voice:
+        case .voices, .voice, .models, .subscription:
             "GET"
+        case .deleteVoice:
+            "DELETE"
         }
     }
 

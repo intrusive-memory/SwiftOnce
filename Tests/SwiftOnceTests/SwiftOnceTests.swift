@@ -153,7 +153,8 @@ private func testConfiguration() -> SwiftOnceConfiguration {
     #expect(config.userAgent == nil)
     #expect(config.voiceCacheTTL == 300)
     #expect(config.audioCacheMaxBytes == 500_000_000)
-    #expect(config.defaultModel == .multilingualV2)
+    #expect(config.defaultModel == .v4)
+    #expect(config.maxConcurrentRequests == 2)
     #expect(config.defaultOutputFormat == .mp3_44100_128)
 }
 
@@ -268,7 +269,7 @@ private func testConfiguration() -> SwiftOnceConfiguration {
     await mock.enqueue(data: Data(responseJSON.utf8), statusCode: 200)
 
     let client = SwiftOnce(apiKey: "test-key", configuration: testConfiguration(), httpClient: mock)
-    let _ = try await client.designVoice(description: "Deep warm baritone", previewText: "Hello world")
+    let _ = try await client.designVoice(description: "Deep warm baritone", previewText: String(repeating: "Hello world. ", count: 10))
 
     let requests = await mock.capturedRequests
     #expect(requests.count == 1)
@@ -279,7 +280,7 @@ private func testConfiguration() -> SwiftOnceConfiguration {
 
     let bodyDict = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
     #expect(bodyDict["voice_description"] as? String == "Deep warm baritone")
-    #expect(bodyDict["text"] as? String == "Hello world")
+    #expect((bodyDict["text"] as? String)?.hasPrefix("Hello world.") == true)
 }
 
 @Test func testDesignVoiceResponseDecoding() async throws {

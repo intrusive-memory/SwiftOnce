@@ -10,6 +10,7 @@ public actor SwiftOnce {
     private let audioCache: AudioCache
     private let decoder: JSONDecoder
     private var resolvedDefaultVoice: Voice?
+    private let sleeper: @Sendable (TimeInterval) async throws -> Void
 
     // Concurrency gate for API rate limiting
     private var activeRequests = 0
@@ -20,6 +21,17 @@ public actor SwiftOnce {
         configuration: SwiftOnceConfiguration = .init(),
         httpClient: (any HTTPClient)? = nil
     ) {
+        self.init(apiKey: apiKey, configuration: configuration, httpClient: httpClient, sleeper: nil)
+    }
+
+    /// Internal designated init; `sleeper` lets tests observe and skip retry delays.
+    init(
+        apiKey: String,
+        configuration: SwiftOnceConfiguration,
+        httpClient: (any HTTPClient)?,
+        sleeper: (@Sendable (TimeInterval) async throws -> Void)?
+    ) {
+        self.sleeper = sleeper ?? { try await Task.sleep(for: .seconds($0)) }
         self.apiKey = apiKey
         self.configuration = configuration
         self.httpClient = httpClient ?? URLSession.shared
@@ -128,7 +140,40 @@ public actor SwiftOnce {
         optimizeStreamingLatency: StreamingLatencyOptimization? = nil,
         enableLogging: Bool? = nil
     ) async throws -> Data {
+        try await speakResult(
+            text, voice: voiceId, model: model, outputFormat: outputFormat,
+            languageCode: languageCode, voiceSettings: voiceSettings, seed: seed,
+            previousText: previousText, nextText: nextText,
+            previousRequestIds: previousRequestIds, nextRequestIds: nextRequestIds,
+            pronunciationDictionaryLocators: pronunciationDictionaryLocators,
+            applyTextNormalization: applyTextNormalization,
+            optimizeStreamingLatency: optimizeStreamingLatency, enableLogging: enableLogging
+        ).audio
+    }
+
+    // MARK: - Text to Speech (with request id)
+
+    /// Same as the full `speak`, but also returns the `request-id` response header
+    /// so it can be passed as `previousRequestIds` / `nextRequestIds` on later calls.
+    public func speakResult(
+        _ text: String,
+        voice voiceId: String,
+        model: Model? = nil,
+        outputFormat: OutputFormat? = nil,
+        languageCode: String? = nil,
+        voiceSettings: VoiceSettings? = nil,
+        seed: Int? = nil,
+        previousText: String? = nil,
+        nextText: String? = nil,
+        previousRequestIds: [String]? = nil,
+        nextRequestIds: [String]? = nil,
+        pronunciationDictionaryLocators: [[String: String]]? = nil,
+        applyTextNormalization: TextNormalization? = nil,
+        optimizeStreamingLatency: StreamingLatencyOptimization? = nil,
+        enableLogging: Bool? = nil
+    ) async throws -> SpeechResult {
         let resolvedModel = model ?? configuration.defaultModel
+        try Self.checkTextLength(text, model: resolvedModel)
         let resolvedFormat = outputFormat ?? configuration.defaultOutputFormat
 
         // Check audio cache
@@ -137,7 +182,7 @@ public actor SwiftOnce {
             outputFormat: resolvedFormat, settings: voiceSettings
         )
         if let cached = try? await audioCache.get(key: cacheKey) {
-            return cached
+            return SpeechResult(audio: cached, requestId: nil)
         }
 
         let body = buildTTSBody(
@@ -168,7 +213,8 @@ public actor SwiftOnce {
         // Cache the result
         try? await audioCache.set(key: cacheKey, data: data)
 
-        return data
+        let requestId = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "request-id")
+        return SpeechResult(audio: data, requestId: requestId)
     }
 
     // MARK: - Streaming
@@ -182,6 +228,9 @@ public actor SwiftOnce {
         optimizeStreamingLatency: StreamingLatencyOptimization? = nil
     ) -> AsyncThrowingStream<Data, Error> {
         let resolvedModel = model ?? configuration.defaultModel
+        if let error = Self.lengthError(text, model: resolvedModel) {
+            return AsyncThrowingStream { $0.finish(throwing: error) }
+        }
         let resolvedFormat = outputFormat ?? configuration.defaultOutputFormat
 
         let body = buildTTSBody(text: text, model: resolvedModel, voiceSettings: voiceSettings)
@@ -235,6 +284,7 @@ public actor SwiftOnce {
         voiceSettings: VoiceSettings? = nil
     ) async throws -> TimestampedAudio {
         let resolvedModel = model ?? configuration.defaultModel
+        try Self.checkTextLength(text, model: resolvedModel)
         let resolvedFormat = outputFormat ?? configuration.defaultOutputFormat
 
         let body = buildTTSBody(text: text, model: resolvedModel, voiceSettings: voiceSettings)
@@ -273,6 +323,9 @@ public actor SwiftOnce {
         voiceSettings: VoiceSettings? = nil
     ) -> AsyncThrowingStream<TimestampedChunk, Error> {
         let resolvedModel = model ?? configuration.defaultModel
+        if let error = Self.lengthError(text, model: resolvedModel) {
+            return AsyncThrowingStream { $0.finish(throwing: error) }
+        }
         let resolvedFormat = outputFormat ?? configuration.defaultOutputFormat
 
         let body = buildTTSBody(text: text, model: resolvedModel, voiceSettings: voiceSettings)
@@ -374,6 +427,47 @@ public actor SwiftOnce {
         return try decoder.decode(Voice.self, from: data)
     }
 
+    /// `DELETE /v1/voices/{id}`. Invalidates the voice cache (and the resolved
+    /// default voice if it was the deleted one) on success.
+    public func deleteVoice(_ voiceId: String) async throws {
+        let request = Endpoint.deleteVoice(voiceId: voiceId)
+            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, userAgent: configuration.userAgent)
+
+        let (data, response) = try await performRequest(request)
+        try validateResponse(response, data: data)
+
+        await voiceCache.invalidate()
+        if resolvedDefaultVoice?.voiceId == voiceId { resolvedDefaultVoice = nil }
+    }
+
+    // MARK: - Models & Subscription
+
+    /// `GET /v1/models`.
+    public func models() async throws -> [ModelInfo] {
+        let request = Endpoint.models
+            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, userAgent: configuration.userAgent)
+        let (data, response) = try await performRequest(request)
+        try validateResponse(response, data: data)
+        do {
+            return try decoder.decode([ModelInfo].self, from: data)
+        } catch {
+            throw ElevenLabsError.decodingError(error)
+        }
+    }
+
+    /// `GET /v1/user/subscription`.
+    public func subscription() async throws -> Subscription {
+        let request = Endpoint.subscription
+            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, userAgent: configuration.userAgent)
+        let (data, response) = try await performRequest(request)
+        try validateResponse(response, data: data)
+        do {
+            return try decoder.decode(Subscription.self, from: data)
+        } catch {
+            throw ElevenLabsError.decodingError(error)
+        }
+    }
+
     public func invalidateVoiceCache() async {
         await voiceCache.invalidate()
         resolvedDefaultVoice = nil
@@ -401,7 +495,8 @@ public actor SwiftOnce {
             model: nil,
             loudness: nil,
             guidanceScale: nil,
-            seed: nil
+            seed: nil,
+            autoGenerateText: nil
         )
     }
 
@@ -411,13 +506,18 @@ public actor SwiftOnce {
         model: VoiceDesignModel? = nil,
         loudness: Double? = nil,
         guidanceScale: Double? = nil,
-        seed: Int? = nil
+        seed: Int? = nil,
+        autoGenerateText: Bool? = nil
     ) async throws -> VoiceDesignResponse {
+        if let previewText, !(100...1000).contains(previewText.count) {
+            throw ElevenLabsError.invalidDesignText(count: previewText.count)
+        }
         var dict: [String: Any] = [
             "voice_description": description,
         ]
         if let previewText { dict["text"] = previewText }
-        if let model { dict["model_id"] = model.rawValue }
+        if let autoGenerateText { dict["auto_generate_text"] = autoGenerateText }
+        dict["model_id"] = (model ?? configuration.defaultDesignModel).rawValue
         if let loudness { dict["loudness"] = loudness }
         if let guidanceScale { dict["guidance_scale"] = guidanceScale }
         if let seed { dict["seed"] = seed }
@@ -426,7 +526,7 @@ public actor SwiftOnce {
         let request = Endpoint.voiceDesign
             .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, body: body, userAgent: configuration.userAgent)
 
-        let (data, response) = try await performRequest(request)
+        let (data, response) = try await performRequest(request, retryConflict: true)
         try validateResponse(response, data: data)
 
         let dto = try decoder.decode(VoiceDesignResponseDTO.self, from: data)
@@ -463,7 +563,7 @@ public actor SwiftOnce {
         let request = Endpoint.createVoice
             .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, body: body, userAgent: configuration.userAgent)
 
-        let (data, response) = try await performRequest(request)
+        let (data, response) = try await performRequest(request, retryConflict: true)
         try validateResponse(response, data: data)
 
         return try decoder.decode(Voice.self, from: data)
@@ -492,44 +592,96 @@ public actor SwiftOnce {
 
     // MARK: - Private Helpers
 
-    private func performRequest(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    private func performRequest(_ request: URLRequest, retryConflict: Bool = false) async throws -> (Data, URLResponse) {
         await acquireSlot()
         defer { releaseSlot() }
 
-        var lastError: (any Error)?
-        for attempt in 0...configuration.maxRetries {
+        var attempt = 0
+        while true {
+            let data: Data
+            let response: URLResponse
             do {
-                let (data, response) = try await httpClient.data(for: request)
-
-                // Check for rate limiting before returning
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
-                    let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
-                    let delay = retryAfter ?? min(1 << attempt, 30)
-                    if attempt < configuration.maxRetries {
-                        try await Task.sleep(for: .seconds(delay))
-                        lastError = ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter)
-                        continue
-                    }
-                    throw ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter)
-                }
-
-                return (data, response)
+                (data, response) = try await httpClient.data(for: request)
             } catch let error as ElevenLabsError {
                 throw error
             } catch {
                 throw ElevenLabsError.networkError(error)
             }
+
+            guard let http = response as? HTTPURLResponse else { return (data, response) }
+            let status = http.statusCode
+            let retryable = status == 429 || (500...599).contains(status) || (retryConflict && status == 409)
+            guard retryable else { return (data, response) }
+
+            let retryAfter = Self.parseRetryAfter(http.value(forHTTPHeaderField: "Retry-After"))
+            if attempt >= configuration.maxRetries {
+                if status == 429 {
+                    throw ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter.map { Int($0.rounded(.up)) })
+                }
+                return (data, response)  // validateResponse maps it to .httpError
+            }
+            try await sleeper(Self.retryDelay(attempt: attempt, retryAfter: retryAfter))
+            attempt += 1
         }
-        throw lastError ?? ElevenLabsError.rateLimited(retryAfterSeconds: nil)
+    }
+
+    // MARK: - Retry / error helpers
+
+    /// Parses `Retry-After` as integer seconds or an HTTP-date. Returns seconds from `now`.
+    static func parseRetryAfter(_ value: String?, now: Date = Date()) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
+        if let seconds = Int(value) { return TimeInterval(max(0, seconds)) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        for format in ["EEE, dd MMM yyyy HH:mm:ss zzz", "EEEE, dd-MMM-yy HH:mm:ss zzz", "EEE MMM d HH:mm:ss yyyy"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return max(0, date.timeIntervalSince(now))
+            }
+        }
+        return nil
+    }
+
+    /// Retry-After wins when present; otherwise jittered exponential backoff capped at 30 s.
+    static func retryDelay(attempt: Int, retryAfter: TimeInterval?) -> TimeInterval {
+        if let retryAfter { return retryAfter }
+        let base = Double(min(1 << min(attempt, 5), 30))
+        return base * Double.random(in: 0.5...1.0)
+    }
+
+    static func lengthError(_ text: String, model: Model) -> ElevenLabsError? {
+        guard let limit = model.maxTextLength, text.count > limit else { return nil }
+        return .textTooLong(model: model.rawValue, limit: limit, count: text.count)
+    }
+
+    static func checkTextLength(_ text: String, model: Model) throws {
+        if let error = lengthError(text, model: model) { throw error }
+    }
+
+    /// `detail.status` and `detail.message` from an ElevenLabs error body, if present.
+    private static func errorDetail(_ data: Data) -> (status: String?, message: String?) {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = object["detail"] as? [String: Any] else { return (nil, nil) }
+        return (detail["status"] as? String, detail["message"] as? String)
     }
 
     private func validateResponse(_ response: URLResponse, data: Data) throws {
         guard let httpResponse = response as? HTTPURLResponse else { return }
         let statusCode = httpResponse.statusCode
+        if (200...299).contains(statusCode) { return }
+
+        let detail = Self.errorDetail(data)
+        switch detail.status {
+        case "quota_exceeded":
+            throw ElevenLabsError.quotaExceeded
+        case "voice_limit_reached", "voice_limit_exceeded", "max_voice_limit_reached":
+            throw ElevenLabsError.voiceLimitReached(detail.message)
+        default:
+            break
+        }
 
         switch statusCode {
-        case 200...299:
-            return
         case 401:
             throw ElevenLabsError.invalidAPIKey
         case 404:
@@ -537,10 +689,8 @@ public actor SwiftOnce {
         case 422:
             throw ElevenLabsError.invalidRequest(String(data: data, encoding: .utf8) ?? "")
         case 429:
-            // Should not reach here (handled in performRequest with retry),
-            // but kept as a safety net
-            let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init)
-            throw ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter)
+            let retryAfter = Self.parseRetryAfter(httpResponse.value(forHTTPHeaderField: "Retry-After"))
+            throw ElevenLabsError.rateLimited(retryAfterSeconds: retryAfter.map { Int($0.rounded(.up)) })
         default:
             throw ElevenLabsError.httpError(statusCode: statusCode, body: String(data: data, encoding: .utf8))
         }
