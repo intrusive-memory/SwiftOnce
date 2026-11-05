@@ -17,7 +17,7 @@ Add SwiftOnce as a Swift Package Manager dependency:
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/intrusive-memory/SwiftOnce.git", from: "1.1.0"),
+    .package(url: "https://github.com/intrusive-memory/SwiftOnce.git", from: "1.1.1"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: ["SwiftOnce"]),

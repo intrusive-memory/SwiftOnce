@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.1
 
 ### Added
 - `createVoice(generatedVoiceId:name:description:labels:)` creates a permanent voice from a
