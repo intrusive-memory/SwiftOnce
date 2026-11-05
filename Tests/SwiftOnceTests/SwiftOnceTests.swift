@@ -593,3 +593,45 @@ private func testConfiguration() -> SwiftOnceConfiguration {
     #expect(key1 != key3)
     #expect(key1.count == 64) // SHA256 hex
 }
+
+@Test func testCreateVoiceFromGeneratedVoiceId() async throws {
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(#"{"voice_id": "permanent_9", "name": "Later"}"#.utf8), statusCode: 200)
+
+    let client = SwiftOnce(apiKey: "key", configuration: testConfiguration(), httpClient: mock)
+    let voice = try await client.createVoice(
+        generatedVoiceId: "gen_from_earlier_run", name: "Later", description: "Picked later",
+        labels: ["role": "lead"])
+
+    #expect(voice.id == "permanent_9")
+    let request = await mock.capturedRequests[0]
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.path == "/v1/text-to-voice")
+    let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+    #expect(body["generated_voice_id"] as? String == "gen_from_earlier_run")
+    #expect(body["voice_name"] as? String == "Later")
+    #expect(body["voice_description"] as? String == "Picked later")
+    #expect((body["labels"] as? [String: String])?["role"] == "lead")
+}
+
+@Test func testVoicePreviewPublicInit() {
+    let preview = VoicePreview(id: "gen_x", audioData: Data([1]), mediaType: "audio/pcm", duration: 1.5, language: nil)
+    #expect(preview.id == "gen_x")
+    #expect(preview.audioData == Data([1]))
+    #expect(preview.language == nil)
+}
+
+@Test func testDesignVoiceOutputFormat() async throws {
+    let mock = MockHTTPClient()
+    await mock.enqueue(data: Data(#"{"previews": [], "text": "t"}"#.utf8), statusCode: 200)
+    await mock.enqueue(data: Data(#"{"previews": [], "text": "t"}"#.utf8), statusCode: 200)
+
+    let client = SwiftOnce(apiKey: "key", configuration: testConfiguration(), httpClient: mock)
+    _ = try await client.designVoice(description: "d", outputFormat: .pcm_24000)
+    _ = try await client.designVoice(description: "d")
+
+    let requests = await mock.capturedRequests
+    #expect(requests[0].url?.path == "/v1/text-to-voice/design")
+    #expect(requests[0].url?.query == "output_format=pcm_24000")
+    #expect(requests[1].url?.query == nil)
+}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1
+
+### Added
+- `createVoice(generatedVoiceId:name:description:labels:)` creates a permanent voice from a
+  `generated_voice_id` obtained in an earlier process. `createVoice(from:)` now delegates to it.
+- Public memberwise initializer on `VoicePreview`.
+- Optional `outputFormat` on `designVoice` (sent as the `output_format` query item, e.g. `pcm_24000`).
+  Omitted by default, so existing behavior is unchanged.
+
 ## 1.1.0
 
 Closes the ElevenLabs API audit gaps (commit d8a5068).

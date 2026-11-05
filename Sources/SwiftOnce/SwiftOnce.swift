@@ -1,7 +1,7 @@
 import Foundation
 
 public actor SwiftOnce {
-    public static let version = "1.1.0"
+    public static let version = "1.1.1"
 
     private let apiKey: String
     private let configuration: SwiftOnceConfiguration
@@ -496,7 +496,8 @@ public actor SwiftOnce {
             loudness: nil,
             guidanceScale: nil,
             seed: nil,
-            autoGenerateText: nil
+            autoGenerateText: nil,
+            outputFormat: nil
         )
     }
 
@@ -507,7 +508,8 @@ public actor SwiftOnce {
         loudness: Double? = nil,
         guidanceScale: Double? = nil,
         seed: Int? = nil,
-        autoGenerateText: Bool? = nil
+        autoGenerateText: Bool? = nil,
+        outputFormat: OutputFormat? = nil
     ) async throws -> VoiceDesignResponse {
         if let previewText, !(100...1000).contains(previewText.count) {
             throw ElevenLabsError.invalidDesignText(count: previewText.count)
@@ -523,8 +525,10 @@ public actor SwiftOnce {
         if let seed { dict["seed"] = seed }
 
         let body = try! JSONSerialization.data(withJSONObject: dict)
+        // `output_format` is a query parameter; omitted when nil so the API default applies.
+        let queryItems = outputFormat.map { [URLQueryItem(name: "output_format", value: $0.rawValue)] } ?? []
         let request = Endpoint.voiceDesign
-            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, body: body, userAgent: configuration.userAgent)
+            .urlRequest(baseURL: configuration.baseURL, apiKey: apiKey, queryItems: queryItems, body: body, userAgent: configuration.userAgent)
 
         let (data, response) = try await performRequest(request, retryConflict: true)
         try validateResponse(response, data: data)
@@ -552,8 +556,24 @@ public actor SwiftOnce {
         description: String,
         labels: [String: String]? = nil
     ) async throws -> Voice {
+        try await createVoice(
+            generatedVoiceId: preview.id,
+            name: name,
+            description: description,
+            labels: labels
+        )
+    }
+
+    /// Creates a permanent voice from a `generated_voice_id` returned by an earlier
+    /// `designVoice` call, possibly in a different process.
+    public func createVoice(
+        generatedVoiceId: String,
+        name: String,
+        description: String,
+        labels: [String: String]? = nil
+    ) async throws -> Voice {
         var dict: [String: Any] = [
-            "generated_voice_id": preview.id,
+            "generated_voice_id": generatedVoiceId,
             "voice_name": name,
             "voice_description": description,
         ]

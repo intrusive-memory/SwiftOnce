@@ -8,6 +8,20 @@ public struct VoicePreview: Sendable, Identifiable {
     public let mediaType: String
     public let duration: TimeInterval
     public let language: String?
+
+    public init(
+        id: String,
+        audioData: Data,
+        mediaType: String,
+        duration: TimeInterval,
+        language: String?
+    ) {
+        self.id = id
+        self.audioData = audioData
+        self.mediaType = mediaType
+        self.duration = duration
+        self.language = language
+    }
 }
 
 public struct VoiceDesignResponse: Sendable {
